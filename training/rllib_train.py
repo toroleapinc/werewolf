@@ -1,6 +1,6 @@
+# training/rllib_train.py
 """
-Run multi-agent training with Ray 2.7+ using a custom MultiAgentEnv.
-No PettingZoo needed, so no agent_selection issues or parallel_to_aec conversions.
+Runs PPO training on the WerewolfMultiAgentEnv with day/night logic, special roles, etc.
 """
 
 import ray
@@ -10,25 +10,26 @@ from ray.rllib.algorithms.ppo import PPOConfig
 from werewolf_env.werewolf_multiagent import WerewolfMultiAgentEnv
 from .rllib_config import build_policies, policy_mapping_fn
 
-
-def my_multiagent_werewolf_env_creator(config):
-    """Factory function that returns our native MultiAgentEnv."""
+def werewolf_env_creator(config):
+    """Factory function returning our multi-agent env."""
     return WerewolfMultiAgentEnv(config)
-
 
 def main():
     ray.init()
 
-    # 1) Register your environment with a unique ID
-    register_env("my_multiagent_werewolf", my_multiagent_werewolf_env_creator)
+    # 1) Register the environment with RLlib
+    register_env("my_werewolf_env", werewolf_env_creator)
 
-    # 2) Build multi-agent policies (seat_0..3 => wolf, else villager, etc.)
+    # 2) Build multi-agent policies
     policies = build_policies()
 
-    # 3) Create PPOConfig referencing that env
+    # 3) Construct PPO config
     config = (
         PPOConfig()
-        .environment(env="my_multiagent_werewolf")  # no PettingZoo
+        .environment(
+            env="my_werewolf_env",
+            disable_env_checking=False  # or True if you want to skip checks
+        )
         .multi_agent(
             policies=policies,
             policy_mapping_fn=policy_mapping_fn,
@@ -46,7 +47,6 @@ def main():
 
     algo.stop()
     ray.shutdown()
-
 
 if __name__ == "__main__":
     main()
