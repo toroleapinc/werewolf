@@ -157,20 +157,20 @@ class WerewolfMultiAgentEnv(MultiAgentEnv):
         """
         # 1) Wolves pick
         wolf_targets = []
-        print("\nNight: Wolves' kill votes:")
+        # print("\nNight: Wolves' kill votes:")
         for i in range(self.num_seats):
             if self.alive[i] and (self.role_assignment[i]=="werewolf"):
                 agent_id = f"seat_{i}"
                 kill_idx = action_dict.get(agent_id, i)
                 kill_idx = self._validate_seat(kill_idx)
                 wolf_targets.append(kill_idx)
-                print(f"  Wolf seat_{i} => seat_{kill_idx}")
+                # print(f"  Wolf seat_{i} => seat_{kill_idx}")
 
         kill_target = None
         if wolf_targets:
             # majority
             kill_target = max(set(wolf_targets), key=wolf_targets.count)
-            print(f"Night: final Wolf kill target => seat_{kill_target}")
+            # print(f"Night: final Wolf kill target => seat_{kill_target}")
 
         # 2) Witch sees kill_target
         if kill_target is not None:
@@ -184,18 +184,18 @@ class WerewolfMultiAgentEnv(MultiAgentEnv):
                 w_action = action_dict.get(agent_id, 0)
                 # 0 => do nothing, 1 => heal kill_target, 2.. => poison seat
                 if (w_action==1) and (not self.witch_heal_used):
-                    print(f"Night: Witch seat_{witch_idx} => HEAL seat_{kill_target} => kill canceled")
+                    # print(f"Night: Witch seat_{witch_idx} => HEAL seat_{kill_target} => kill canceled")
                     kill_target = None
                     self.witch_heal_used = True
                 elif (w_action>=2) and (not self.witch_poison_used):
                     poison_seat = w_action-2
                     poison_seat = self._validate_seat(poison_seat)
-                    print(f"Night: Witch seat_{witch_idx} => POISON seat_{poison_seat}")
+                    # print(f"Night: Witch seat_{witch_idx} => POISON seat_{poison_seat}")
                     self.witch_poison_used = True
                     self._kill_seat(poison_seat, "witch_poison")
 
         if kill_target is not None:
-            print(f"Night: Wolf kill => seat_{kill_target}")
+            # print(f"Night: Wolf kill => seat_{kill_target}")
             self._kill_seat(kill_target, "wolf_kill")
 
     def _day_phase(self, action_dict):
@@ -204,14 +204,14 @@ class WerewolfMultiAgentEnv(MultiAgentEnv):
         We log each seat's vote, final kill target, etc.
         """
         votes = {}
-        print("\nDay: Voting")
+        # print("\nDay: Voting")
         for i in range(self.num_seats):
             if self.alive[i]:
                 agent_id = f"seat_{i}"
                 vote_idx = action_dict.get(agent_id, i)
                 vote_idx = self._validate_seat(vote_idx)
                 votes[vote_idx] = votes.get(vote_idx, 0)+1
-                print(f"  seat_{i} ({self.role_assignment[i]}) => seat_{vote_idx}")
+                # print(f"  seat_{i} ({self.role_assignment[i]}) => seat_{vote_idx}")
 
         if not votes:
             return
@@ -226,11 +226,11 @@ class WerewolfMultiAgentEnv(MultiAgentEnv):
         # tie?
         count_with_top = sum(v==topcount for v in votes.values())
         if count_with_top>1:
-            print("Day: tie => no elimination")
+            # print("Day: tie => no elimination")
             return
 
         if kill_target is not None:
-            print(f"Day: kill => seat_{kill_target}")
+            # print(f"Day: kill => seat_{kill_target}")
             self._kill_seat(kill_target, "day_vote")
 
     def _kill_seat(self, seat_idx, reason):
@@ -240,7 +240,7 @@ class WerewolfMultiAgentEnv(MultiAgentEnv):
         if not self.alive[seat_idx]:
             return
         role = self.role_assignment[seat_idx]
-        print(f"  seat_{seat_idx} ({role}) => KILLED by {reason}")
+        # print(f"  seat_{seat_idx} ({role}) => KILLED by {reason}")
 
         self.alive[seat_idx] = False
 
@@ -249,7 +249,7 @@ class WerewolfMultiAgentEnv(MultiAgentEnv):
             possible_targets = [i for i in range(self.num_seats) if self.alive[i] and i!=seat_idx]
             if possible_targets:
                 victim = random.choice(possible_targets)
-                print(f"  Hunter seat_{seat_idx} => SHOOTS seat_{victim}")
+                # print(f"  Hunter seat_{seat_idx} => SHOOTS seat_{victim}")
                 self.alive[victim] = False
 
         # If it's Idiot and reason=="day_vote", you could let them survive once if you want, etc.

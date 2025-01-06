@@ -1,38 +1,36 @@
 # training/rllib_config.py
 """
-Build seat-based policies for seat_i in {werewolf, villager} or full roles if you like.
-For demonstration, we only do 'werewolf' vs. 'villager' to keep it simpler.
+Config utilities for our seat-based multi-agent Werewolf setup.
+
+We define:
+- build_policies(): Creates 12 seat-based policy IDs (seat_0_policy..seat_11_policy)
+- policy_mapping_fn(): Returns the seat_N_policy for agent_id "seat_N"
+
+No mention of "werewolf" or "villager" in the policy name; the environment does random roles
+under the hood, and the seat sees `role_id` in its observation to adapt as Wolf, Witch, etc.
 """
-
-NUM_SEATS = 12
-
-def seat_role_to_policy_name(seat_id, role_name):
-    return f"policy_seat{seat_id}_{role_name}"
 
 def build_policies():
     """
-    Minimal example: seat_i => werewolf or villager.
-    If you want all 6 roles, you can expand the loop or do a role-check in the environment's reset.
+    Build 12 seat-based policies:
+      seat_0_policy, seat_1_policy, ... seat_11_policy
+    Each seat uses exactly one policy across all episodes,
+    even if the seat's role changes.
     """
     policies = {}
-    for seat_id in range(NUM_SEATS):
-        # Suppose seat_id < 4 => Wolf, else villager
-        # but you can do a 12x6 approach if you want 72 policies
-        if seat_id < 4:
-            role_name = "werewolf"
-        else:
-            role_name = "villager"
-        policy_name = seat_role_to_policy_name(seat_id, role_name)
-        policies[policy_name] = (None, None, None, {})
+    for seat_id in range(12):
+        policy_id = f"seat_{seat_id}_policy"
+        # RLlib expects a tuple: (policy_cls, obs_space, act_space, config)
+        # We can do (None, None, None, {}) so RLlib uses defaults. 
+        policies[policy_id] = (None, None, None, {})
     return policies
+
 
 def policy_mapping_fn(agent_id, episode, worker, **kwargs):
     """
-    Simple approach: seat_0..3 => 'werewolf', else 'villager'.
-    Or you can read from the environment's role assignment if you stored that externally.
+    Called each time RLlib needs to figure out which policy to use for a given agent.
+    agent_id will be like "seat_0", "seat_1", etc.
+    We just return "seat_0_policy" for "seat_0", etc.
     """
-    seat_id = int(agent_id.split("_")[1])
-    if seat_id < 4:
-        return f"policy_seat{seat_id}_werewolf"
-    else:
-        return f"policy_seat{seat_id}_villager"
+    # agent_id is "seat_X"
+    return f"{agent_id}_policy"
