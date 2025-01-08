@@ -1,15 +1,12 @@
 """
 Name of script: main.py
 
-Example driver script for the WerewolfMultiAgentEnv, where:
- - We create the environment from werewolf_env.werewolf_multiagent.
- - On each step, we supply valid actions depending on the current phase:
-    ELECTION => seats pick {0,1,2}
-    DAY => seats pick from [0..NUM_SEATS]
-    NIGHT => Wolf seats pick [1..NUM_SEATS], Seer picks [1..NUM_SEATS], Witch picks [0..2], etc.
+Driver script for the WerewolfMultiAgentEnv, ensuring:
+ - No seat picks a dead seat or picks themselves if they are dead.
+ - We use a "mask" approach for seat actions so RL or random code never chooses an invalid seat.
 
-We do random seat actions for demonstration. Kills from pending lists
-(after ELECTION) will be applied at the start of the next Day.
+No changes here regarding the badge logic (that is in werewolf_multiagent.py).
+We just ensure all seat picks reference valid, alive seats or 0 => no vote/no kill.
 """
 
 import numpy as np
@@ -18,7 +15,8 @@ from werewolf_env.werewolf_multiagent import WerewolfMultiAgentEnv
 
 def simulate_one_game():
     """
-    Create the WerewolfMultiAgentEnv, run one game with random actions for demonstration.
+    Create the WerewolfMultiAgentEnv and run one game with random seat actions
+    that only select from valid, alive seats (excluding self).
     """
     env = WerewolfMultiAgentEnv()
     obs, info = env.reset()
@@ -26,7 +24,7 @@ def simulate_one_game():
     done_flags = {agent_id: False for agent_id in env.agents}
     step_count = 0
 
-    # Print initial seat roles (for debugging only)
+    # Print initial seat roles (for debugging)
     print("\n--- START OF GAME ---")
     for seat_idx, agent_id in enumerate(env.agents):
         role = env.role_assignment[seat_idx]
@@ -38,20 +36,20 @@ def simulate_one_game():
         action_dict = {}
 
         if env.phase == "ELECTION":
-            # Each alive seat picks from {0,1,2}
+            # Each alive seat picks from {0,1,2} => 0=no-run,1=run,2=quit
             for seat_idx, agent_id in enumerate(env.agents):
-                if done_flags[agent_id] or not env.alive[seat_idx]:
+                if not env.alive[seat_idx] or done_flags[agent_id]:
                     action_dict[agent_id] = 0
                 else:
                     action_dict[agent_id] = random.randint(0, 2)
 
         elif env.phase == "DAY":
-            # Each alive seat picks from [0..NUM_SEATS]
+            # Each alive seat picks {0 => no vote} or a valid alive seat
             for seat_idx, agent_id in enumerate(env.agents):
-                if done_flags[agent_id] or not env.alive[seat_idx]:
+                if not env.alive[seat_idx] or done_flags[agent_id]:
                     action_dict[agent_id] = 0
                 else:
-                    # 25% => no vote, else pick random alive seat
+                    # 25% => no vote
                     if random.random() < 0.25:
                         action_dict[agent_id] = 0
                     else:
@@ -66,48 +64,53 @@ def simulate_one_game():
                             action_dict[agent_id] = chosen + 1
 
         else:  # NIGHT
-            # Wolf => pick [1..NUM_SEATS], Seer => pick [1..NUM_SEATS], Witch => [0..2], etc.
+            # Wolf => 0 => no kill, else pick from alive seats
+            # Seer => pick from alive seats not self/known, else 0
+            # Witch => if used heal => no 1, if used poison => no 2
+            # Others => pick 0 or from alive seats
             for seat_idx, agent_id in enumerate(env.agents):
-                if done_flags[agent_id] or not env.alive[seat_idx]:
+                if not env.alive[seat_idx] or done_flags[agent_id]:
                     action_dict[agent_id] = 0
                     continue
 
                 role = env.role_assignment[seat_idx]
+
                 if role == "werewolf":
                     alive_targets = [
                         s for s in range(env.num_seats)
                         if s != seat_idx and env.alive[s]
                     ]
-                    if not alive_targets:
+                    options = [0] + [t+1 for t in alive_targets]
+                    action_dict[agent_id] = random.choice(options)
+
+                elif role == "seer":
+                    known_dict = env.seer_knowledge.get(seat_idx, {})
+                    valid_candidates = [
+                        s for s in range(env.num_seats)
+                        if s != seat_idx and env.alive[s] and (s not in known_dict)
+                    ]
+                    if not valid_candidates:
                         action_dict[agent_id] = 0
                     else:
-                        chosen = random.choice(alive_targets)
+                        chosen = random.choice(valid_candidates)
                         action_dict[agent_id] = chosen + 1
-                elif role == "seer":
+
+                elif role == "witch":
+                    possible_actions = [0]
+                    if not env.witch_heal_used:
+                        possible_actions.append(1)
+                    if not env.witch_poison_used:
+                        possible_actions.append(2)
+                    action_dict[agent_id] = random.choice(possible_actions)
+
+                else:
+                    # Other roles => 0 or pick from alive seats
                     alive_targets = [
                         s for s in range(env.num_seats)
                         if s != seat_idx and env.alive[s]
                     ]
-                    if not alive_targets:
-                        action_dict[agent_id] = 0
-                    else:
-                        chosen = random.choice(alive_targets)
-                        action_dict[agent_id] = chosen + 1
-                elif role == "witch":
-                    action_dict[agent_id] = random.randint(0, 2)
-                else:
-                    if random.random() < 0.25:
-                        action_dict[agent_id] = 0
-                    else:
-                        alive_targets = [
-                            s for s in range(env.num_seats)
-                            if s != seat_idx and env.alive[s]
-                        ]
-                        if not alive_targets:
-                            action_dict[agent_id] = 0
-                        else:
-                            chosen = random.choice(alive_targets)
-                            action_dict[agent_id] = chosen + 1
+                    picks = [0] + [t+1 for t in alive_targets]
+                    action_dict[agent_id] = random.choice(picks)
 
         # Step environment
         next_obs, rewards, terminated, truncated, infos = env.step(action_dict)
