@@ -1,34 +1,87 @@
 Folder PATH listing
 Volume serial number is 9062-BB8A
 C:.
-©¦  main.py
-©¦  README.md
-©¦  requirements.txt
-©¦  s.txt
-©¦  
-©À©¤gpt_integration
-©¦      speech_generator.py
-©¦      __init__.py
-©¦      
-©À©¤scripts
-©¦      run_training.sh
-©¦      
-©À©¤training
-©¦  ©¦  rllib_config.py
-©¦  ©¦  rllib_train.py
-©¦  ©¦  __init__.py
-©¦  ©¦  
-©¦  ©¸©¤__pycache__
-©¦          rllib_config.cpython-310.pyc
-©¦          rllib_train.cpython-310.pyc
-©¦          __init__.cpython-310.pyc
-©¦          
-©¸©¤werewolf_env
-    ©¦  roles.py
-    ©¦  werewolf_multiagent.py
-    ©¦  __init__.py
-    ©¦  
-    ©¸©¤__pycache__
+|   main.py
+|   README.md
+|   requirements.txt
+|   rllib_restore.py
+|   structure.txt
+|   
++---gpt_integration
+|       speech_generator.py
+|       __init__.py
+|       
++---rllib_checkpoints
+|   |   algorithm_state.pkl
+|   |   rllib_checkpoint.json
+|   |   
+|   \---policies
+|       +---seat_0_policy
+|       |       policy_state.pkl
+|       |       rllib_checkpoint.json
+|       |       
+|       +---seat_10_policy
+|       |       policy_state.pkl
+|       |       rllib_checkpoint.json
+|       |       
+|       +---seat_11_policy
+|       |       policy_state.pkl
+|       |       rllib_checkpoint.json
+|       |       
+|       +---seat_1_policy
+|       |       policy_state.pkl
+|       |       rllib_checkpoint.json
+|       |       
+|       +---seat_2_policy
+|       |       policy_state.pkl
+|       |       rllib_checkpoint.json
+|       |       
+|       +---seat_3_policy
+|       |       policy_state.pkl
+|       |       rllib_checkpoint.json
+|       |       
+|       +---seat_4_policy
+|       |       policy_state.pkl
+|       |       rllib_checkpoint.json
+|       |       
+|       +---seat_5_policy
+|       |       policy_state.pkl
+|       |       rllib_checkpoint.json
+|       |       
+|       +---seat_6_policy
+|       |       policy_state.pkl
+|       |       rllib_checkpoint.json
+|       |       
+|       +---seat_7_policy
+|       |       policy_state.pkl
+|       |       rllib_checkpoint.json
+|       |       
+|       +---seat_8_policy
+|       |       policy_state.pkl
+|       |       rllib_checkpoint.json
+|       |       
+|       \---seat_9_policy
+|               policy_state.pkl
+|               rllib_checkpoint.json
+|               
++---scripts
+|       run_training.sh
+|       
++---training
+|   |   rllib_train.py
+|   |   __init__.py
+|   |   
+|   \---__pycache__
+|           rllib_config.cpython-310.pyc
+|           rllib_train.cpython-310.pyc
+|           __init__.cpython-310.pyc
+|           
+\---werewolf_env
+    |   roles.py
+    |   werewolf_multiagent.py
+    |   __init__.py
+    |   
+    \---__pycache__
             roles.cpython-310.pyc
             werewolf_multiagent.cpython-310.pyc
             werewolf_parallel_env.cpython-310.pyc

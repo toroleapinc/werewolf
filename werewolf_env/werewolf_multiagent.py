@@ -1,44 +1,13 @@
+# File name: werewolf_multiagent.py
+
 """
-Name of script: werewolf_multiagent.py
-
-A seat-based multi-agent Werewolf environment with:
- - NIGHT -> ELECTION -> DAY -> (repeat)
- - No seat picks a dead seat behind the scenes; main.py ensures that only valid actions are chosen.
- - Badge logic:
-    - If the badge-holder is killed at night: pass the badge to a random other alive seat.
-    - If the badge-holder is killed during the day: the badge is discarded.
-    - If the seat is an Idiot singled out the first time in day voting => do NOT kill => 
-        if they had the badge, they keep it (since they remain alive).
-    - Second time singled out => truly day-killed => badge is discarded if they had it.
- - Wolf => picks 0 => no kill, or picks seat_x => we gather majority among those seats. tie => random
- - Seer => picks seat to check if > 0
- - Witch => picks (0 => do nothing, 1 => heal if unused, 2 => quit if election-phase, or uses seat pick if you adapt it)
-   *** For simplicity below: 
-       - If the Witch picks 1 => heal the wolf kill target.
-       - If the Witch picks seat_x => poison that seat (assuming the Witch hasn't used poison).
- - If day_count>10 => truncated
- - If wolves=0 => village wins
- - If vill=0 or gods=0 => werewolves win
- - If wolves>=(vill+gods) => werewolves early-win
- - No skipping or reassigning picks is done in the environment once chosen.
-
-We have restructured the environment to:
- - Use a unified discrete action space of size (NUM_SEATS + 3), where:
-   action=0 => "no action"
-   action=1 => "run for election" (valid in ELECTION phase)
-   action=2 => "quit election" (valid in ELECTION phase)
-   action>=3 => pick seat (action-3)
- - Provide an action mask that indicates which actions are valid in each phase/role/status.
- - Remove all random seat picks from the environment logic. Instead, the environment simply *reads* the chosen action
-   and applies it as is. Randomness (e.g. tie-breaking) remains for group decisions (wolf majority, badge pass, etc.).
-   But seat-based picks for Seer, Witch-poison, etc. are read from the agent's action (action>=3 => seat_x).
-
-NEW: We print the specific ELECTION votes (randomly assigned to final_runners) so you can see exactly who is voting for whom.
+A seat-based multi-agent Werewolf environment returning dict observations:
+    { "obs": <10-element array>, "action_mask": <(NUM_SEATS+3)-element array> }.
+We do NOT flatten them. This works fine with the old (ModelV2) RLlib API.
 """
 
 import random
 import numpy as np
-
 from ray.rllib.env.multi_agent_env import MultiAgentEnv
 from gymnasium.spaces import Discrete, Box, Dict
 
@@ -48,8 +17,8 @@ def role_to_int(role_name):
     return ALL_ROLES.index(role_name)
 
 ROLE_DISTRIBUTION = (
-    ["werewolf"]*4 +
-    ["villager"]*4 +
+    ["werewolf"] * 4 +
+    ["villager"] * 4 +
     ["seer"] +
     ["witch"] +
     ["hunter"] +
@@ -69,18 +38,14 @@ class WerewolfMultiAgentEnv(MultiAgentEnv):
         self.agents = [f"seat_{i}" for i in range(self.num_seats)]
         self._agent_ids = set(self.agents)
 
-        # ---------------------------
-        # UNIFIED ACTION SPACE:
-        # 0 => no action
-        # 1 => run for election
-        # 2 => quit election
-        # 3..(NUM_SEATS+2) => pick seat "action-3"
-        # ---------------------------
+        # Discrete action space: 0..(NUM_SEATS+2)
         self.action_space = Discrete(NUM_SEATS + 3)
 
-        # Observation space => dict of "obs" + "action_mask"
+        # Dict observation space with two keys: "obs" + "action_mask"
         self.observation_space = Dict({
+            # "obs": 10-element array with seat_idx, phase, role_id, etc.
             "obs": Box(low=0, high=255, shape=(10,), dtype=np.int32),
+            # "action_mask": binary array of length (NUM_SEATS+3)
             "action_mask": Box(low=0, high=1, shape=(self.action_space.n,), dtype=np.int32),
         })
 
@@ -102,10 +67,7 @@ class WerewolfMultiAgentEnv(MultiAgentEnv):
         self.pending_kills_first_night = []
         self.pending_post_election_kills = []
         self.last_night_deaths = []
-
-        # Track how many times the idiot seat has been singled out in day votes
         self.idiot_singled_out_count = [0]*NUM_SEATS
-
         self.phase = "NIGHT"
 
     def reset(self, *, seed=None, options=None):
@@ -120,12 +82,10 @@ class WerewolfMultiAgentEnv(MultiAgentEnv):
         self.day_count = 0
         self.episode_terminated = False
         self.episode_truncated = False
-
         self.witch_heal_used = False
         self.witch_poison_used = False
         self.badge_holder = -1
         self.election_done = False
-
         self.seer_knowledge.clear()
         self.pending_kills_first_night.clear()
         self.pending_post_election_kills.clear()
@@ -142,15 +102,15 @@ class WerewolfMultiAgentEnv(MultiAgentEnv):
         return obs_dict, {}
 
     def step(self, action_dict):
-        # If ended or truncated => return final
         if self.episode_terminated or self.episode_truncated:
-            obs = {a: self._build_observation(i) for i,a in enumerate(self.agents)}
-            rew = {a: 0.0 for a in self.agents}
-            ter = {a: True for a in self.agents}
-            tru = {a: False for a in self.agents}
+            obs = {agent_id: self._build_observation(i)
+                   for i, agent_id in enumerate(self.agents)}
+            rew = {agent_id: 0.0 for agent_id in self.agents}
+            ter = {agent_id: True for agent_id in self.agents}
+            tru = {agent_id: False for agent_id in self.agents}
             ter["__all__"] = True
             tru["__all__"] = self.episode_truncated
-            return obs, rew, ter, tru, {a:{} for a in self.agents}
+            return obs, rew, ter, tru, {a: {} for a in self.agents}
 
         if self.phase == "NIGHT":
             self._night_phase(action_dict)
@@ -165,10 +125,8 @@ class WerewolfMultiAgentEnv(MultiAgentEnv):
             self.phase = "DAY"
 
         elif self.phase == "DAY":
-            # Apply leftover kills
             self._apply_kills(self.pending_kills_first_night, nightkill=True)
             self._apply_kills(self.pending_post_election_kills, nightkill=True)
-
             self._day_phase_two_round(action_dict)
             self.day_count += 1
             self.phase = "NIGHT"
@@ -180,8 +138,8 @@ class WerewolfMultiAgentEnv(MultiAgentEnv):
         self._check_winner()
 
         obs = {}
-        for i,a in enumerate(self.agents):
-            obs[a] = self._build_observation(i)
+        for i, agent_id in enumerate(self.agents):
+            obs[agent_id] = self._build_observation(i)
 
         rew = self._build_rewards()
         ter = {}
@@ -199,16 +157,11 @@ class WerewolfMultiAgentEnv(MultiAgentEnv):
             ter["__all__"] = False
             tru["__all__"] = False
 
-        return obs, rew, ter, tru, {a:{} for a in self.agents}
+        return obs, rew, ter, tru, {a: {} for a in self.agents}
 
-    # ---------------------------------------------------------------------
-    # ---------------------- PHASE-SPECIFIC LOGIC --------------------------
-    # ---------------------------------------------------------------------
-
+    # --------------- Phase Logic (Night, Election, Day) ---------------
     def _night_phase(self, action_dict):
         print(f"\nNight: Wolf kills => majority. day_count={self.day_count}")
-
-        # Gather Wolf votes
         wolf_votes = []
         for i in range(self.num_seats):
             if self.alive[i] and self.role_assignment[i] == "werewolf":
@@ -220,7 +173,6 @@ class WerewolfMultiAgentEnv(MultiAgentEnv):
                     print(f"  Wolf seat_{i} => seat_{seat_cand}")
                 wolf_votes.append(seat_cand)
 
-        # Wolf majority logic
         if all(x is None for x in wolf_votes):
             print("Night: all wolves pick no kill => no one is killed.")
             kill_target = None
@@ -228,11 +180,11 @@ class WerewolfMultiAgentEnv(MultiAgentEnv):
             valid = [v for v in wolf_votes if v is not None]
             freq = {}
             for v in valid:
-                freq[v] = freq.get(v, 0)+1
+                freq[v] = freq.get(v, 0) + 1
             if freq:
                 mx = max(freq.values())
-                top_cands = [k for k,vv in freq.items() if vv==mx]
-                if len(top_cands)>1:
+                top_cands = [k for k, vv in freq.items() if vv == mx]
+                if len(top_cands) > 1:
                     kill_target = random.choice(top_cands)
                 else:
                     kill_target = top_cands[0]
@@ -242,13 +194,13 @@ class WerewolfMultiAgentEnv(MultiAgentEnv):
 
         # Seer checks
         for i, ro in enumerate(self.role_assignment):
-            if self.alive[i] and ro=="seer":
+            if self.alive[i] and ro == "seer":
                 a = action_dict.get(f"seat_{i}", 0)
-                if a>=3:
+                if a >= 3:
                     seat_cand = a - 3
-                    known = self.seer_knowledge.setdefault(i,{})
+                    known = self.seer_knowledge.setdefault(i, {})
                     if seat_cand not in known:
-                        iswolf = (self.role_assignment[seat_cand]=="werewolf")
+                        iswolf = (self.role_assignment[seat_cand] == "werewolf")
                         print(f"  Seer seat_{i} => checks seat_{seat_cand} => Wolf? {iswolf}")
                         known[seat_cand] = iswolf
 
@@ -256,25 +208,25 @@ class WerewolfMultiAgentEnv(MultiAgentEnv):
         if kill_target is not None:
             wseat = None
             for si, rr in enumerate(self.role_assignment):
-                if rr=="witch" and self.alive[si]:
+                if rr == "witch" and self.alive[si]:
                     wseat = si
                     break
             if wseat is not None:
                 wact = action_dict.get(f"seat_{wseat}", 0)
-                if wact==0:
+                if wact == 0:
                     print("  Witch => does NOTHING")
-                elif wact==1:
+                elif wact == 1:
                     if not self.witch_heal_used:
                         print(f"  Witch seat_{wseat} => HEAL seat_{kill_target}, kill canceled")
                         kill_target = None
                         self.witch_heal_used = True
-                elif wact>=3:
+                elif wact >= 3:
                     if not self.witch_poison_used:
                         victim = wact - 3
-                        if victim!=wseat and self.alive[victim] and victim!=kill_target:
+                        if victim != wseat and self.alive[victim] and victim != kill_target:
                             print(f"  Witch seat_{wseat} => POISON seat_{victim}")
                             self.witch_poison_used = True
-                            if self.day_count==0 and not self.election_done:
+                            if self.day_count == 0 and not self.election_done:
                                 print(f"Night: first-night poison is pending => seat_{victim}")
                                 self.pending_kills_first_night.append(("poison", victim))
                             else:
@@ -283,13 +235,12 @@ class WerewolfMultiAgentEnv(MultiAgentEnv):
                                 else:
                                     self.last_night_deaths.append({
                                         "seat_idx": victim,
-                                        "reason":"poison"
+                                        "reason": "poison"
                                     })
                                     self._kill_seat(victim, "poison", nightkill=True)
 
-        # If still valid kill_target => proceed
         if kill_target is not None:
-            if self.day_count==0 and not self.election_done:
+            if self.day_count == 0 and not self.election_done:
                 print(f"Night: first-night kill is pending => seat_{kill_target}")
                 self.pending_kills_first_night.append(("wolf", kill_target))
             else:
@@ -300,7 +251,7 @@ class WerewolfMultiAgentEnv(MultiAgentEnv):
                     print(f"Night: seat_{kill_target} is chosen for elimination")
                     self.last_night_deaths.append({
                         "seat_idx": kill_target,
-                        "reason":"wolf"
+                        "reason": "wolf"
                     })
                     self._kill_seat(kill_target, "wolf", nightkill=True)
 
@@ -516,6 +467,7 @@ class WerewolfMultiAgentEnv(MultiAgentEnv):
     # ---------------------------------------------------------------------
 
     def _apply_kills(self, kill_list, nightkill=True):
+        # ... unchanged ...
         if not kill_list:
             return
         print("Applying pending kills now:")
@@ -623,19 +575,24 @@ class WerewolfMultiAgentEnv(MultiAgentEnv):
         return rew
 
     def _build_observation(self, seat_idx):
-        alive_flag= 1 if self.alive[seat_idx] else 0
-        ph=0
-        if self.phase=="ELECTION":
-            ph=1
-        elif self.phase=="DAY":
-            ph=2
+        """
+        Returns a dict with:
+         - "obs": 10-element integer array
+         - "action_mask": binary array of length (NUM_SEATS+3)
+        """
+        alive_flag = 1 if self.alive[seat_idx] else 0
+        ph = 0
+        if self.phase == "ELECTION":
+            ph = 1
+        elif self.phase == "DAY":
+            ph = 2
 
-        role_name= self.role_assignment[seat_idx]
-        rid= role_to_int(role_name)
-        wh= 1 if self.witch_heal_used else 0
-        wp= 1 if self.witch_poison_used else 0
-        bh= self.badge_holder if self.badge_holder>=0 else 255
-        iw= 1 if role_name=="werewolf" else 0
+        role_name = self.role_assignment[seat_idx]
+        rid = role_to_int(role_name)
+        wh = 1 if self.witch_heal_used else 0
+        wp = 1 if self.witch_poison_used else 0
+        bh = self.badge_holder if self.badge_holder >= 0 else 255
+        iw = 1 if role_name == "werewolf" else 0
 
         obs_array = np.array([
             seat_idx,
@@ -651,7 +608,6 @@ class WerewolfMultiAgentEnv(MultiAgentEnv):
         ], dtype=np.int32)
 
         action_mask = self._get_action_mask(seat_idx)
-
         return {
             "obs": obs_array,
             "action_mask": action_mask
